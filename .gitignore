@@ -1,0 +1,10 @@
+.env
+# Runtime data of the harnesses (sessions, credentials, history) - do not commit
+config/claude/*
+!config/claude/settings.json
+config/opencode/*
+!config/opencode/opencode.json
+config/copilot/*
+!config/copilot/config.json
+__pycache__/
+*.pyc

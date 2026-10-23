@@ -1,0 +1,171 @@
+# AI-Sandbox
+#
+#   source scripts/keychain-env.sh     # tokens from the macOS Keychain
+#   docker compose up -d --build       # start proxy + sandbox
+#   docker compose exec sandbox bash   # enter the sandbox
+#
+# Sub-sandboxes (profiles):
+#   docker compose --profile go up -d --build      && docker compose exec sandbox-go bash
+#   docker compose --profile python up -d --build  && docker compose exec sandbox-python bash
+
+name: ai-sandbox
+
+x-sandbox: &sandbox
+  init: true
+  hostname: sandbox
+  user: "${SANDBOX_UID:-1000}:${SANDBOX_GID:-1000}"
+  depends_on:
+    proxy:
+      condition: service_healthy
+  networks:
+    - sandbox-net
+  # --- Hardening -------------------------------------------------------------
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  privileged: false
+  ipc: private
+  pids_limit: ${SANDBOX_PIDS_LIMIT:-2048}
+  mem_limit: ${SANDBOX_MEM_LIMIT:-8g}
+  cpus: ${SANDBOX_CPUS:-2}
+  tmpfs:
+    - /tmp:rw,exec,nosuid,nodev,size=${SANDBOX_TMP_SIZE:-4g},mode=1777
+  # --- Mounts ----------------------------------------------------------------
+  volumes:
+    - type: bind
+      source: ${WORKSPACE_DIR:-${HOME}/dev}
+      target: /workspace
+    - type: volume
+      source: sandbox-home
+      target: /home/dev
+    - type: bind
+      source: ./config/claude
+      target: /home/dev/.claude
+    - type: bind
+      source: ./config/opencode
+      target: /home/dev/.config/opencode
+    - type: bind
+      source: ./config/copilot
+      target: /home/dev/.copilot
+    - type: volume
+      source: mitm-ca-public
+      target: /etc/mitmproxy-ca
+      read_only: true
+  # --- Environment ------------------------------------------------------------
+  environment:
+    # Proxy (the only way to reach the internet)
+    HTTP_PROXY: http://proxy:8080
+    HTTPS_PROXY: http://proxy:8080
+    http_proxy: http://proxy:8080
+    https_proxy: http://proxy:8080
+    NO_PROXY: localhost,127.0.0.1,::1,proxy
+    no_proxy: localhost,127.0.0.1,::1,proxy
+    NODE_USE_ENV_PROXY: "1"
+    # mitmproxy CA for all common TLS stacks
+    NODE_EXTRA_CA_CERTS: /etc/mitmproxy-ca/mitmproxy-ca-cert.pem
+    SSL_CERT_FILE: /tmp/ca/ca-bundle.crt
+    REQUESTS_CA_BUNDLE: /tmp/ca/ca-bundle.crt
+    CURL_CA_BUNDLE: /tmp/ca/ca-bundle.crt
+    GIT_SSL_CAINFO: /tmp/ca/ca-bundle.crt
+    PIP_CERT: /tmp/ca/ca-bundle.crt
+    UV_NATIVE_TLS: "1"
+    # Tokens: no value = taken from the calling shell (if set)
+    ANTHROPIC_API_KEY:
+    CLAUDE_CODE_OAUTH_TOKEN:
+    OPENAI_API_KEY:
+    OPENROUTER_API_KEY:
+    OPENCODE_API_KEY:
+    COPILOT_GITHUB_TOKEN:
+    GITHUB_TOKEN:
+    GH_TOKEN:
+    TZ: ${TZ:-Europe/Berlin}
+
+services:
+  proxy:
+    build:
+      context: ./proxy
+    image: ai-sandbox-proxy:latest
+    pull_policy: build
+    hostname: proxy
+    restart: unless-stopped
+    networks:
+      sandbox-net:
+        aliases: [proxy]
+      egress: {}
+    ports:
+      # mitmweb UI reachable only on the Mac (localhost)
+      - "127.0.0.1:${MITMWEB_PORT:-8081}:8081"
+    command:
+      - --mode
+      - regular@8080
+      - --web-host
+      - 0.0.0.0
+      - --web-port
+      - "8081"
+      - --no-web-open-browser
+      - -s
+      - /addons/sandbox_addon.py
+      - --set
+      - web_password=${MITMWEB_PASSWORD:-}
+    environment:
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      MITM_SAVE_FLOWS: ${MITM_SAVE_FLOWS:-0}
+      MITM_IGNORE_HOSTS: ${MITM_IGNORE_HOSTS:-}
+    volumes:
+      - mitm-conf:/home/mitmproxy/.mitmproxy
+      - mitm-ca-public:/ca-public
+      - mitm-flows:/flows
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+
+  sandbox:
+    <<: *sandbox
+    build:
+      context: ./sandbox
+      args:
+        USER_UID: ${SANDBOX_UID:-1000}
+        USER_GID: ${SANDBOX_GID:-1000}
+    image: ai-sandbox:latest
+    pull_policy: build
+
+  sandbox-go:
+    <<: *sandbox
+    profiles: [go]
+    hostname: sandbox-go
+    build:
+      context: ./images/go-k8s
+      additional_contexts:
+        sandbox-base: service:sandbox
+    image: ai-sandbox-go:latest
+    pull_policy: build
+
+  sandbox-python:
+    <<: *sandbox
+    profiles: [python]
+    hostname: sandbox-python
+    build:
+      context: ./images/python
+      additional_contexts:
+        sandbox-base: service:sandbox
+    image: ai-sandbox-python:latest
+    pull_policy: build
+
+networks:
+  # Internal network: no gateway, no internet. Only sandbox <-> proxy.
+  sandbox-net:
+    internal: true
+  # Outbound network, for the proxy only
+  egress: {}
+
+volumes:
+  sandbox-home:
+  mitm-conf:
+  mitm-ca-public:
+  mitm-flows:

@@ -1,0 +1,19 @@
+# Sourced by every interactive bash in the sandbox.
+
+# gh/git: use GITHUB_TOKEN as a fallback for GH_TOKEN
+if [ -z "${GH_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+  export GH_TOKEN="$GITHUB_TOKEN"
+fi
+
+# Copilot CLI without constant permission prompts (container only)
+alias copilot='command copilot --allow-all-tools --allow-all-paths'
+
+alias ll='ls -alF --color=auto'
+alias la='ls -A --color=auto'
+
+if [ -n "${PS1:-}" ]; then
+  PS1='\[\e[1;35m\][sandbox]\[\e[0m\] \u@\h:\w\$ '
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  fi
+fi
