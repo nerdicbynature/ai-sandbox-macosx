@@ -161,26 +161,6 @@ For Rancher Desktop's own Kubernetes cluster, add its API host to `MITM_IGNORE_H
 **Python** (`images/python`): uv/uvx, Python 3.13 (uv-managed, `PYTHON_VERSION`), ruff, mypy,
 pyright, pytest, ipython, pre-commit, poetry, nox, tox, pipx, build headers for native packages.
 
-### iOS / Xcode
-
-There is no Linux container image with the Xcode build tools: `xcodebuild`, the iOS SDK,
-the simulator, `codesign` and `notarytool` exist only on macOS, and Rancher Desktop runs
-Linux containers. Xcode itself can of course run on the Mac and work on the same folder.
-
-To let the AI build, test and release from inside the sandbox anyway, the build has to run
-on macOS and be *triggered* from the sandbox. Keep in mind that `xcodebuild` executes run
-script phases and SwiftPM plugins from the project, so building AI-modified code directly
-on your Mac means the AI can run code on the host. Two clean options:
-
-1. **macOS VM with [Tart](https://tart.run) as build agent**: the VM shares the workspace
-   folder, holds Xcode, signing certificates and the App Store Connect key, and exposes a
-   small build API with a fixed set of commands (build, test, archive, fastlane lanes) that
-   the sandbox reaches through the proxy. Fast and local, and the Mac stays isolated.
-2. **GitHub Actions on macOS runners**: the AI pushes a branch or tag with `gh`, CI builds,
-   tests and releases. Simplest and safest, but slower and it uses macOS minutes.
-
-A good combination is Tart for the fast build/test loop and CI for releases.
-
 ## Troubleshooting
 
 * **`ERR_PROXY_TUNNEL` / "Unable to connect to Anthropic services"**: the proxy rejected the
